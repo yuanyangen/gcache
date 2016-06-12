@@ -1,6 +1,7 @@
 package gcache
 
 import (
+
 	"sync"
 	"time"
 )
@@ -39,6 +40,7 @@ const NOQueue2 = 2
 var Gcache = &cache{}
 
 func init() {
+	Gcache.data = make(map[string]*Item)
 	Gcache.q1Meta = &QueueMeta{}
 	Gcache.q2Meta = &QueueMeta{}
 	Gcache.q1Meta.Len = 0
@@ -54,16 +56,27 @@ func init() {
 
 //get the ptr of the item we want to operate
 func (c *cache)getItem(key string) *Item {
+	c.rwLock.RLock()
 	if item, ok := c.data[key]; ok {
+		c.rwLock.RUnlock()
+		return item
+	}
+	c.rwLock.RUnlock()
+
+	//here seems a little strange , the condition below is for thread safe
+	//todo may be i can optimize this
+	c.rwLock.Lock()
+	if item, ok := c.data[key]; ok {
+		c.rwLock.Unlock()
 		return item
 	}
 
-	c.rwLock.Lock()
 	c.data[key] = &Item{key:key, expiration:0}
 	c.rwLock.Unlock()
 	return c.data[key]
 }
 
+//todo auto evict when the list is full
 func (c *cache)Set(key string, value interface{}, expiration int64) error {
 	item := c.getItem(key)
 	item.rwLock.Lock()
@@ -78,7 +91,7 @@ func (c *cache)Set(key string, value interface{}, expiration int64) error {
 func (c *cache)Get(key string)(interface{}) {
 	item := c.getItem(key)
 	//if the item is in queue1 then move it to queue2
-	if item.queueNo == nil {
+	if item.queueNo == 0 {
 		return nil
 	}
 
@@ -97,11 +110,11 @@ func (c *cache)Get(key string)(interface{}) {
 	return item.value
 }
 
-func (c *cache)Gets(keys []string)( []interface{}, error) {
+func (c *cache)Gets(keys []string)( []interface{}) {
 	var ret = make([]interface{},0)
-	for key := range keys {
+	for _,key := range keys {
 		val := c.Get(key)
-		append(ret, val)
+		ret = append(ret, val)
 	}
 	return ret
 }
