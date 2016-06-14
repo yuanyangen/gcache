@@ -9,18 +9,18 @@ import (
 type cache struct {
 	data       map[string]*Item
 	deleteChan chan *Item //
+	addChan chan *Item //
 	rwLock     sync.RWMutex
-	lru *Lru
+	lru        *Lru
 }
-
 
 type Item struct {
 	key        string
 	value      interface{}
 	expiration int64 //second of expiration , 0 means never expire
 	rwLock     sync.RWMutex
-	refCount int64 //引用次数
-	node *Node
+	refCount   int64 //引用次数
+	node       *Node
 }
 
 var Gcache = &cache{}
@@ -29,6 +29,7 @@ var Gcache = &cache{}
 func init() {
 	Gcache.data = make(map[string]*Item)
 	Gcache.deleteChan = make(chan *Item, 1024)
+	Gcache.addChan = make(chan *Item, 1024)
 	Gcache.lru.delChan = make(chan *Node, 1024)
 	Gcache.lru.getChan = make(chan *Node, 1024)
 	Gcache.lru.setChan = make(chan *Node, 1024)
@@ -84,7 +85,7 @@ func (c *cache)Set(key string, value interface{}, expiration int64) error {
 	return nil
 }
 
-func (c *cache)Get(key string)(interface{}) {
+func (c *cache)Get(key string) (interface{}) {
 	item := c.getItem(key)
 
 	//expired
@@ -95,9 +96,9 @@ func (c *cache)Get(key string)(interface{}) {
 	return item.value
 }
 
-func (c *cache)Gets(keys []string)( []interface{}) {
-	var ret = make([]interface{},0)
-	for _,key := range keys {
+func (c *cache)Gets(keys []string) ([]interface{}) {
+	var ret = make([]interface{}, 0)
+	for _, key := range keys {
 		val := c.Get(key)
 		ret = append(ret, val)
 	}
@@ -107,13 +108,11 @@ func (c *cache)Gets(keys []string)( []interface{}) {
 func (c *cache) Delete(key string) error {
 	//what if the key not exist in queue or map ??
 	//so should first remove from the queue
-	if item,ok := c.data[key]; ok {
+	if item, ok := c.data[key]; ok {
 		c.deleteChan <- item
 	}
 	return nil
 }
-
-
 
 func Append() {
 
@@ -143,13 +142,19 @@ func Decr() {
 //receive ptr from chan and do remove node from map ,also send info to queue to del
 //todo
 func (c *cache) daemonDelete() {
-	go func(){
+	go func() {
 		for {
-			item := <-c.deleteChan
-			if _, ok := c.data[item.key]; ok {
-				c.lru.delChan <- item.node
-				delete(c.data, item.key)
+			select {
+			case item := <-c.deleteChan :{
+				if _, ok := c.data[item.key]; ok {
+					delete(c.data, item.key)
+				}
 			}
+			case item := <- c.addChan : {
+
+			}
+
 		}
-	}()
+	}
+}()
 }
