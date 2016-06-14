@@ -31,26 +31,6 @@ const NOQueue2 = 2
 
 // all operation to the lru queue are being serialized to make sure the operation is concurrency safe
 func (l *Lru)daemonA() {
-	/*
-	go func() {
-		for {
-			select {
-			case node := <-l.queue1.addChan:
-				putnodeToHead(l.queue1, node)
-			case node := <-l.queue2.addChan:
-				putnodeToHead(l.queue2, node)
-			case node := <-l.queue1.delChan:
-				removenodeFromQueue(l.queue1, node)
-			case node := <-l.queue2.delChan:
-				removenodeFromQueue(l.queue2, node)
-			case node := <-l.moveChan:
-
-				removenodeFromQueue(l.queue1, node)
-				putnodeToHead(l.queue2, node)
-			}
-		}
-	}()
-*/
 	go func() {
 		for {
 			select {
@@ -66,10 +46,10 @@ func (l *Lru)daemonA() {
 					}
 					node.refCount++
 				}
-			case node := <-l.setChan:
+			case node := <-l.setChan: {
 				putNodeToHead(l.queue1, node)
-			//todo may be bugs, node may not in this queue
 				removeNodeFromQueue(l.queue2, node)
+			}
 			case node := <-l.delChan:
 				{
 					if node.queueNo == NOQueue1 {
@@ -79,12 +59,6 @@ func (l *Lru)daemonA() {
 					}
 				}
 			}
-
-			//receive the command from get , set and delete , then do it
-
-			//remove from the first queue, then add to the second queue
-
-
 		}
 	}()
 }
@@ -93,10 +67,11 @@ func putNodeToHead(q *Queue, node *Node) {
 	// if node already in this queue
 	if node.queueNo == q.id {
 		//if node already in the head of the queue
-		if q.Head == node {
+		if q.Head == node || node.prev == nil {
 			return
 		}
 		node.next = q.Head
+		node.prev = nil
 		q.Head = node
 
 		if node != q.Tail {

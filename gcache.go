@@ -9,7 +9,6 @@ import (
 type cache struct {
 	data       map[string]*Item
 	deleteChan chan *Item //
-	addChan chan *Item //
 	rwLock     sync.RWMutex
 	lru        *Lru
 }
@@ -29,7 +28,7 @@ var Gcache = &cache{}
 func init() {
 	Gcache.data = make(map[string]*Item)
 	Gcache.deleteChan = make(chan *Item, 1024)
-	Gcache.addChan = make(chan *Item, 1024)
+	Gcache.lru = &Lru{}
 	Gcache.lru.delChan = make(chan *Node, 1024)
 	Gcache.lru.getChan = make(chan *Node, 1024)
 	Gcache.lru.setChan = make(chan *Node, 1024)
@@ -37,12 +36,6 @@ func init() {
 	Gcache.lru.queue2 = &Queue{id:NOQueue2, MaxLen:102400}
 	Gcache.lru.queue1.Len = 0
 	Gcache.lru.queue2.Len = 0
-	/*
-	Gcache.lru.queue1.addChan = make(chan *Node, 10240)
-	Gcache.lru.queue1.delChan = make(chan *Node, 10240)
-	Gcache.lru.queue2.addChan = make(chan *Node, 10240)
-	Gcache.lru.queue2.delChan = make(chan *Node, 10240)
-	*/
 	Gcache.lru.daemonA()
 	Gcache.lru.lruK = 1
 	Gcache.daemonDelete()
@@ -144,17 +137,12 @@ func Decr() {
 func (c *cache) daemonDelete() {
 	go func() {
 		for {
-			select {
-			case item := <-c.deleteChan :{
-				if _, ok := c.data[item.key]; ok {
-					delete(c.data, item.key)
-				}
+			item := <-c.deleteChan
+			if _, ok := c.data[item.key]; ok {
+				c.rwLock.Lock()
+				delete(c.data, item.key)
+				c.rwLock.Unlock()
 			}
-			case item := <- c.addChan : {
-
-			}
-
 		}
-	}
-}()
+	}()
 }
