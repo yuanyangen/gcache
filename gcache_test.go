@@ -25,8 +25,8 @@ func Test_SetAndGet(t *testing.T) {
 	}
 
 	start := time.Now().UnixNano()
-	//it will take about 5 second on a 4core+8G +windows7 x64
-	for i:=0; i<100000000; i++ {
+	//it will take about 2 second on a 4core+8G +windows7 x64
+	for i:=0; i<10000000; i++ {
 		tmp2 = Gcache.Get(key2)
 	}
 	fmt.Println(time.Now().UnixNano() - start)
