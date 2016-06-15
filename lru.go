@@ -14,14 +14,14 @@ type Lru struct {
 
 //when user do a read operation to item, then move the location in
 func (l *Lru) GetOperation(item *Item) {
-	//if this item is not exists
-	if item.queuePtr != nil {
+	//if this item is not in any queue
+	if item.queuePtr == nil {
 		e := l.queue1.PushFront(item)
 		item.queueElement = e
 		item.queuePtr = l.queue1
 	} else {
 		//this item in queue1 and reach the lru-k limit
-		if item.queuePtr == l.queue2 && item.refCount > l.lruK {
+		if item.queuePtr == l.queue1 && item.refCount > l.lruK {
 			//auto evict queue2
 			for l.queue2.Len() >= l.queue2MaxLen {
 				tail := l.queue2.Front().Prev()

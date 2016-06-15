@@ -47,7 +47,23 @@ func (c *cache)getItem(key string) (*Item) {
 	return c.data[key]
 }
 
-func (c *cache)Set(key string, value interface{}, expiration int64) error {
+func Set(key string, value interface{}, expiration int64) error {
+	return Gcache.set(key, value, expiration)
+}
+
+func Get(key string) (interface{}) {
+	return Gcache.get(key)
+}
+
+func MGet(keys []string) ([]interface{}) {
+	return Gcache.mGet(keys)
+}
+
+func Delete(key string) error {
+	return Gcache.delete(key)
+}
+
+func (c *cache) set(key string, value interface{}, expiration int64) error {
 	item := c.getItem(key)
 	c.rwLock.Lock()
 	defer c.rwLock.Unlock()
@@ -57,8 +73,7 @@ func (c *cache)Set(key string, value interface{}, expiration int64) error {
 	return nil
 }
 
-//todo what if hackers try this DDoS??
-func (c *cache)Get(key string) (interface{}) {
+func (c *cache)get(key string) (interface{}) {
 	item := c.getItem(key)
 	c.rwLock.Lock()
 	defer c.rwLock.Unlock()
@@ -72,16 +87,17 @@ func (c *cache)Get(key string) (interface{}) {
 	return item.value
 }
 
-func (c *cache)MGet(keys []string) ([]interface{}) {
+
+func (c *cache)mGet(keys []string) ([]interface{}) {
 	var ret = make([]interface{}, 0)
 	for _, key := range keys {
-		val := c.Get(key)
+		val := c.get(key)
 		ret = append(ret, val)
 	}
 	return ret
 }
 
-func (c *cache) Delete(key string) error {
+func (c *cache) delete(key string) error {
 	c.rwLock.Lock()
 	defer c.rwLock.Unlock()
 
