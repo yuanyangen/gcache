@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 	"container/list"
+	"strings"
 )
 
 //this package implement a cache simuliar to memcached, it use 2Q  as its evict method
@@ -72,6 +73,10 @@ func MGet(keys []string) ([]interface{}) {
 	return Gcache.mGet(keys)
 }
 
+func ScanWithPrefix(prefix string) ([]interface{}) {
+	return Gcache.scanWithPrefix(prefix)
+}
+
 func Delete(key string) error {
 	return Gcache.delete(key)
 }
@@ -107,6 +112,20 @@ func (c *cache)mGet(keys []string) ([]interface{}) {
 	for _, key := range keys {
 		val := c.get(key)
 		ret = append(ret, val)
+	}
+	return ret
+}
+
+
+func (c *cache)scanWithPrefix(prefix string) ([]interface{}) {
+	var ret = make([]interface{}, 0)
+	for k := range c.data {
+		if strings.HasPrefix(k, prefix) {
+			v := c.get(k)
+			if v != nil {
+				ret = append(ret, v)
+			}
+		}
 	}
 	return ret
 }
