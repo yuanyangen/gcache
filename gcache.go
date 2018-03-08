@@ -16,7 +16,7 @@ type cache struct {
 type Item struct {
 	key        string
 	value      interface{}
-	expiration int64 //second of expiration , 0 means never expire
+	expiration int64 //second of expiration , 0 means never Expire
 	rwLock     sync.RWMutex
 	queuePtr   *list.List   //indicate queue this item in
 	queueElement *list.Element
@@ -32,6 +32,19 @@ func init() {
 	Gcache.lru = &Lru{queue1:&list.List{}, queue2:&list.List{}, lruK:1, queue1MaxLen:1024, queue2MaxLen:1024}
 	Gcache.lru.queue2.Init()
 	Gcache.lru.queue1.Init()
+
+	/**
+	实现主动的cache清除
+	 */
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		for {
+			select {
+			case <- t.C:
+				Gcache.autoExpire()
+			}
+		}
+	}()
 }
 
 //get the ptr of the item we want to operate
@@ -79,6 +92,7 @@ func (c *cache)get(key string) (interface{}) {
 	defer c.rwLock.Unlock()
 	//expired
 	if int64(time.Now().Unix()) > item.expiration {
+		c.delete(key)
 		return nil
 	}
 
@@ -106,4 +120,15 @@ func (c *cache) delete(key string) error {
 		c.lru.DelOperation(item)
 	}
 	return nil
+}
+
+/**
+遍历所有的key， 实现代码的自动清除
+ */
+func (c *cache) autoExpire() {
+	for key,item := range c.data {
+		if int64(time.Now().Unix()) > item.expiration {
+			c.delete(key)
+		}
+	}
 }
