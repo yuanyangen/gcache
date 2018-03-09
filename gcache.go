@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"io"
 )
 
 //this package implement a cache simuliar to memcached, it use 2Q  as its evict method
@@ -23,10 +22,6 @@ type Item struct {
 	queuePtr     *list.List //indicate queue this item in
 	queueElement *list.Element
 	refCount     int64
-}
-
-type DumpOut interface {
-	dumpOneRecord(key string, v interface{})
 }
 
 var Gcache = &cache{}
@@ -85,8 +80,8 @@ func Delete(key string) error {
 	return Gcache.delete(key)
 }
 
-func Dump(out DumpOut) {
-	Gcache.dump(out)
+func Dump() map[string]interface{} {
+	return Gcache.dump()
 }
 
 func (c *cache) set(key string, value interface{}, expiration int64) error {
@@ -158,13 +153,15 @@ func (c *cache) autoExpire() {
 	}
 }
 
-func (c *cache) dump(out DumpOut) {
+func (c *cache) dump() map[string]interface{} {
+	ret := make(map[string]interface{})
 	c.rwLock.RLock()
 	defer c.rwLock.RUnlock()
 	for k := range c.data {
 		v := c.get(k)
 		if v != nil {
-			out.dumpOneRecord(k, v)
+			ret[k] = v
 		}
 	}
+	return ret
 }
