@@ -1,10 +1,11 @@
 package gcache
 
 import (
-	"sync"
-	"time"
 	"container/list"
 	"strings"
+	"sync"
+	"time"
+	"io"
 )
 
 //this package implement a cache simuliar to memcached, it use 2Q  as its evict method
@@ -15,33 +16,36 @@ type cache struct {
 }
 
 type Item struct {
-	key        string
-	value      interface{}
-	expiration int64 //second of expiration , 0 means never Expire
-	rwLock     sync.RWMutex
-	queuePtr   *list.List   //indicate queue this item in
+	key          string
+	value        interface{}
+	expiration   int64 //second of expiration , 0 means never Expire
+	rwLock       sync.RWMutex
+	queuePtr     *list.List //indicate queue this item in
 	queueElement *list.Element
-	refCount int64
+	refCount     int64
 }
 
+type DumpOut interface {
+	dumpOneRecord(key string, v interface{})
+}
 
 var Gcache = &cache{}
 
 //init the hash map and the two queue
 func init() {
 	Gcache.data = make(map[string]*Item)
-	Gcache.lru = &Lru{queue1:&list.List{}, queue2:&list.List{}, lruK:1, queue1MaxLen:1024, queue2MaxLen:1024}
+	Gcache.lru = &Lru{queue1: &list.List{}, queue2: &list.List{}, lruK: 1, queue1MaxLen: 1024, queue2MaxLen: 1024}
 	Gcache.lru.queue2.Init()
 	Gcache.lru.queue1.Init()
 
 	/**
 	实现主动的cache清除
-	 */
+	*/
 	go func() {
 		t := time.NewTicker(60 * time.Second)
 		for {
 			select {
-			case <- t.C:
+			case <-t.C:
 				Gcache.autoExpire()
 			}
 		}
@@ -50,14 +54,14 @@ func init() {
 
 //get the ptr of the item we want to operate
 //
-func (c *cache)getItem(key string) (*Item) {
+func (c *cache) getItem(key string) *Item {
 	c.rwLock.Lock()
 	defer c.rwLock.Unlock()
 
 	if item, ok := c.data[key]; ok {
 		return item
 	}
-	c.data[key] = &Item{key:key, expiration:0, refCount:0}
+	c.data[key] = &Item{key: key, expiration: 0, refCount: 0}
 	return c.data[key]
 }
 
@@ -65,20 +69,24 @@ func Set(key string, value interface{}, expiration int64) error {
 	return Gcache.set(key, value, expiration)
 }
 
-func Get(key string) (interface{}) {
+func Get(key string) interface{} {
 	return Gcache.get(key)
 }
 
-func MGet(keys []string) ([]interface{}) {
+func MGet(keys []string) []interface{} {
 	return Gcache.mGet(keys)
 }
 
-func ScanWithPrefix(prefix string) ([]interface{}) {
+func ScanWithPrefix(prefix string) []interface{} {
 	return Gcache.scanWithPrefix(prefix)
 }
 
 func Delete(key string) error {
 	return Gcache.delete(key)
+}
+
+func Dump(out DumpOut) {
+	Gcache.dump(out)
 }
 
 func (c *cache) set(key string, value interface{}, expiration int64) error {
@@ -91,7 +99,7 @@ func (c *cache) set(key string, value interface{}, expiration int64) error {
 	return nil
 }
 
-func (c *cache)get(key string) (interface{}) {
+func (c *cache) get(key string) interface{} {
 	item := c.getItem(key)
 	c.rwLock.Lock()
 	defer c.rwLock.Unlock()
@@ -106,8 +114,7 @@ func (c *cache)get(key string) (interface{}) {
 	return item.value
 }
 
-
-func (c *cache)mGet(keys []string) ([]interface{}) {
+func (c *cache) mGet(keys []string) []interface{} {
 	var ret = make([]interface{}, 0)
 	for _, key := range keys {
 		val := c.get(key)
@@ -116,8 +123,7 @@ func (c *cache)mGet(keys []string) ([]interface{}) {
 	return ret
 }
 
-
-func (c *cache)scanWithPrefix(prefix string) ([]interface{}) {
+func (c *cache) scanWithPrefix(prefix string) []interface{} {
 	var ret = make([]interface{}, 0)
 	for k := range c.data {
 		if strings.HasPrefix(k, prefix) {
@@ -143,11 +149,22 @@ func (c *cache) delete(key string) error {
 
 /**
 遍历所有的key， 实现代码的自动清除
- */
+*/
 func (c *cache) autoExpire() {
-	for key,item := range c.data {
+	for key, item := range c.data {
 		if int64(time.Now().Unix()) > item.expiration {
 			c.delete(key)
+		}
+	}
+}
+
+func (c *cache) dump(out DumpOut) {
+	c.rwLock.RLock()
+	defer c.rwLock.RUnlock()
+	for k := range c.data {
+		v := c.get(k)
+		if v != nil {
+			out.dumpOneRecord(k, v)
 		}
 	}
 }
