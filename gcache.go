@@ -9,16 +9,15 @@ import (
 
 //this package implement a cache simuliar to memcached, it use 2Q  as its evict method
 type cache struct {
-	data   map[string]*Item
-	rwLock sync.RWMutex
-	lru    *Lru
+	data map[string]*Item
+	lock sync.Mutex
+	lru  *Lru
 }
 
 type Item struct {
 	key          string
 	value        interface{}
 	expiration   int64 //second of expiration , 0 means never Expire
-	rwLock       sync.RWMutex
 	queuePtr     *list.List //indicate queue this item in
 	queueElement *list.Element
 	refCount     int64
@@ -47,25 +46,12 @@ func init() {
 	}()
 }
 
-//get the ptr of the item we want to operate
-//
-func (c *cache) getItem(key string) *Item {
-	c.rwLock.Lock()
-	defer c.rwLock.Unlock()
-
-	if item, ok := c.data[key]; ok {
-		return item
-	}
-	c.data[key] = &Item{key: key, expiration: 0, refCount: 0}
-	return c.data[key]
-}
-
 func Set(key string, value interface{}, expiration int64) error {
 	return Gcache.set(key, value, expiration)
 }
 
 func Get(key string) interface{} {
-	return Gcache.get(key)
+	return Gcache.concurrentGet(key)
 }
 
 func MGet(keys []string) []interface{} {
@@ -77,7 +63,7 @@ func ScanWithPrefix(prefix string) []interface{} {
 }
 
 func Delete(key string) error {
-	return Gcache.delete(key)
+	return Gcache.concurrentDelete(key)
 }
 
 func Dump() map[string]interface{} {
@@ -85,31 +71,47 @@ func Dump() map[string]interface{} {
 }
 
 func (c *cache) set(key string, value interface{}, expiration int64) error {
-	item := c.getItem(key)
-	c.rwLock.Lock()
-	defer c.rwLock.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if _, ok := c.data[key]; !ok {
+		c.data[key] = &Item{key: key, expiration: 0, refCount: 0}
+	}
+	item := c.data[key]
 	item.value = value
 	item.expiration = int64(time.Now().Unix()) + expiration
 	c.lru.SetOperation(item)
 	return nil
 }
 
+
+func (c *cache) concurrentGet(key string) interface{} {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.get(key)
+}
 func (c *cache) get(key string) interface{} {
-	item := c.getItem(key)
-	c.rwLock.Lock()
-	defer c.rwLock.Unlock()
-	//expired
-	if int64(time.Now().Unix()) > item.expiration {
-		c.delete(key)
+	//key不存在
+	if item, ok := c.data[key]; ok {
+		//key已经过期
+		if int64(time.Now().Unix()) > item.expiration {
+			c.delete(key)
+			return nil
+		} else {
+			//正常返回
+			item.refCount++
+			c.lru.GetOperation(item)
+			return item.value
+		}
+	} else {
 		return nil
 	}
-
-	item.refCount++
-	c.lru.GetOperation(item)
-	return item.value
 }
 
 func (c *cache) mGet(keys []string) []interface{} {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	var ret = make([]interface{}, 0)
 	for _, key := range keys {
 		val := c.get(key)
@@ -119,6 +121,8 @@ func (c *cache) mGet(keys []string) []interface{} {
 }
 
 func (c *cache) scanWithPrefix(prefix string) []interface{} {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	var ret = make([]interface{}, 0)
 	for k := range c.data {
 		if strings.HasPrefix(k, prefix) {
@@ -131,10 +135,13 @@ func (c *cache) scanWithPrefix(prefix string) []interface{} {
 	return ret
 }
 
-func (c *cache) delete(key string) error {
-	c.rwLock.Lock()
-	defer c.rwLock.Unlock()
+func (c *cache) concurrentDelete(key string) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.delete(key)
+}
 
+func (c *cache) delete(key string) error {
 	if item, ok := c.data[key]; ok {
 		delete(c.data, key)
 		c.lru.DelOperation(item)
@@ -148,15 +155,17 @@ func (c *cache) delete(key string) error {
 func (c *cache) autoExpire() {
 	for key, item := range c.data {
 		if int64(time.Now().Unix()) > item.expiration {
+			c.lock.Lock()
 			c.delete(key)
+			c.lock.Unlock()
 		}
 	}
 }
 
 func (c *cache) dump() map[string]interface{} {
 	ret := make(map[string]interface{})
-	c.rwLock.RLock()
-	defer c.rwLock.RUnlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	for k := range c.data {
 		v := c.get(k)
 		if v != nil {
